@@ -13,6 +13,10 @@ class LookupController extends Controller
 {
     public function lookup(LookupService $lookupService)
     {
-        return $lookupService->getLookup();
+        try {
+            return $lookupService->getLookup();
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], $e->getCode());
+        }
     }
 }

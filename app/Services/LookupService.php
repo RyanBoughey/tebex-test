@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 
 class LookupService
 {
-    protected $url;
+    protected $url = false;
     protected $http;
     protected $type;
     protected $userId;
@@ -19,7 +19,12 @@ class LookupService
         $this->username = ($request->get('username') ? $request->get('username') : false);
         $this->userId = ($request->get('id') ? $request->get('id') : false);
         $this->http = $client;
-        $this->url = false;
+    }
+
+    public function getLookup()
+    {
+        $this->checkType();
+        return $this->{$this->type}();
     }
 
     public function minecraft()
@@ -30,20 +35,31 @@ class LookupService
         if ($this->userId) {
             $this->url = "https://sessionserver.mojang.com/session/minecraft/profile/{$this->userId}";
         }
+        $this->checkUrl();
+        $match = $this->doLookup();
+        return [
+            'username' => $match->name,
+            'id' => $match->id,
+            'avatar' => "https://crafatar.com/avatars/{$match->id}",
+        ];
     }
 
     public function steam()
     {
         if ($this->username) {
             //@TODO - Make this an exception
-            return response()->json(
-                ['message' => "Unable to complete search, steam only supports IDs"],
-                400
-            );
+            throw new \Exception('Unable to complete search, steam only supports IDs', 400);
         }
         if ($this->userId) {
             $this->url = "https://ident.tebex.io/usernameservices/4/username/{$this->userId}";
         }
+        $this->checkUrl();
+        $match = $this->doLookup();
+        return [
+            'username' => $match->username,
+            'id' => $match->id,
+            'avatar' =>  $match->meta->avatar,
+        ];
     }
 
     public function xbl()
@@ -54,44 +70,32 @@ class LookupService
         if ($this->userId) {
             $this->url = "https://ident.tebex.io/usernameservices/3/username/{$this->userId}";
         }
+        $this->checkUrl();
+        $match = $this->doLookup();
+        return [
+            'username' => $match->username,
+            'id' => $match->id,
+            'avatar' =>  $match->meta->avatar,
+        ];
     }
 
-    public function getLookup()
+    public function doLookup()
+    {
+            return json_decode($this->http->get($this->url)->getBody()->getContents());
+    }
+
+    public function checkUrl()
+    {
+        if (!$this->url) {
+            throw new \Exception("Unable to complete search, no username or user id provided", 400);
+        }
+    }
+
+    public function checkType()
     {
         if (!method_exists($this, $this->type)) {
-            //We can't handle this - maybe provide feedback?
-            return response()->json(
-                ['message' => "Unable to find requested user, {$this->type} is not a recognised type"],
-                404
-            );
+            throw new \Exception("{$this->type} is not a recognised type", 400);
         }
-        $this->{$this->type}();
-        if (!$this->url) {
-            // We've come across an issue where the url has not been set.
-            // set error asking for either username or id
-            return response()->json(
-                ['message' => "Unable to complete search, no username or user id provided"],
-                400
-            );
-        }
-        try {
-            $match = json_decode($this->http->get($this->url)->getBody()->getContents());
-        } catch (\Exception $e) {
-            report($e);
-            return response()->json(['message' => 'Unable to find requested user'], 404);
-        }
-        if ($this->type == 'minecraft') {
-            $returnUsername = $match->name;
-            $avatar = "https://crafatar.com/avatars/{$match->id}";
-        } else {
-            $returnUsername = $match->username;
-            $avatar = $match->meta->avatar;
-        }
-        return [
-            'username' => $returnUsername,
-            'id' => $match->id,
-            'avatar' => $avatar
-        ];
     }
 
     public function setType($type)
